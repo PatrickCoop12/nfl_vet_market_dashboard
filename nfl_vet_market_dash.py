@@ -63,9 +63,9 @@ st.markdown(
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Active Veteran Contracts", len(df_filtered))
-col2.metric("Mean APY", f"${df_filtered['average'].mean():,.2f}" if not df_filtered.empty else "$0.00")
+col2.metric("Average APY", f"${df_filtered['average'].mean():,.2f}" if not df_filtered.empty else "$0.00")
 col3.metric("Median Guarantee %", f"{df_filtered['guarantee_pct'].median():.2f}%" if not df_filtered.empty else "0.00%")
-col4.metric("Avg Age at Signing",
+col4.metric("Average Age at Signing",
             f"{df_filtered['age_at_signing'].mean():.2f} yrs" if not df_filtered.empty else "0.00 yrs")
 
 st.markdown("---")
@@ -185,7 +185,6 @@ with tab3:
                                        options=sorted(df_comp_active["player"].unique()))
         p_data = df_comp_active[df_comp_active["player"] == selected_player].iloc[0]
 
-        # Responsive CSS layout for long player names
         st.markdown("""
         <style>
         .player-card { background-color: #1e222a; border-radius: 8px; padding: 12px 16px; border-left: 4px solid #1f77b4; margin-bottom: 10px; }
@@ -230,7 +229,6 @@ with tab3:
             comp_players = [selected_player] + selected_peers
             comp_df = df_comp_active[df_comp_active["player"].isin(comp_players)].copy()
 
-            # Dual Axis Chart
             fig_bar = make_subplots(specs=[[{"secondary_y": True}]])
             fig_bar.add_trace(
                 go.Bar(x=comp_df["player"], y=comp_df["average"], name="APY ($)", marker_color="rgb(26, 118, 255)"),
@@ -243,7 +241,6 @@ with tab3:
             fig_bar.update_yaxes(title_text=primary_m_label, secondary_y=True)
             st.plotly_chart(fig_bar, use_container_width=True)
 
-            # Comparison Table
             comp_table_cols = ["player", "pos", "team", "age_at_signing", "years", "value", "average", "guarantee",
                                "guarantee_pct"] + selected_stats
             comp_tbl = comp_df[comp_table_cols].rename(columns={
@@ -256,7 +253,6 @@ with tab3:
             for s in selected_stats: tbl_fmt[s] = "{:.2f}"
             st.dataframe(comp_tbl.style.format(tbl_fmt, na_rep="-"), use_container_width=True)
 
-            # Percentile Radar Chart
             st.markdown("##### Relative Profile Percentile Radar Chart")
             radar_m = ["average", "guarantee_pct"] + selected_stats[:3]
             radar_lbls = ["APY ($)", "Guarantee %"] + [m.replace("_", " ").title() for m in selected_stats[:3]]
@@ -301,19 +297,26 @@ with tab4:
         df_clustered, _ = run_kmeans_clustering(df_ml_active, cluster_feat, n_clusters=3)
 
         st.markdown("#### 1. Market Tier Aggregate Profiles")
+
+        # Build aggregate table dynamically with "Average" labels
         tier_agg = df_clustered.groupby("market_tier").agg(
             Count=("player", "count"),
-            Mean_APY=("average", "mean"),
-            Mean_Guarantee=("guarantee", "mean"),
-            Mean_Guarantee_Pct=("guarantee_pct", "mean")
+            Average_APY=("average", "mean"),
+            Average_Guarantee=("guarantee", "mean"),
+            Average_Guarantee_Pct=("guarantee_pct", "mean")
         ).reset_index()
 
-        tier_fmt = {"Mean_APY": "${:,.2f}", "Mean_Guarantee": "${:,.2f}", "Mean_Guarantee_Pct": "{:.2f}%"}
+        tier_fmt = {
+            "Average_APY": "${:,.2f}",
+            "Average_Guarantee": "${:,.2f}",
+            "Average_Guarantee_Pct": "{:.2f}%"
+        }
+
         for feat in cluster_feat[2:]:
             feat_m = df_clustered.groupby("market_tier")[feat].mean().reset_index()
-            feat_m.columns = ["market_tier", f"Mean_{feat}"]
+            feat_m.columns = ["market_tier", f"Average_{feat}"]
             tier_agg = tier_agg.merge(feat_m, on="market_tier")
-            tier_fmt[f"Mean_{feat}"] = "{:.2f}"
+            tier_fmt[f"Average_{feat}"] = "{:.2f}"
 
         st.dataframe(tier_agg.style.format(tier_fmt, na_rep="-"), use_container_width=True)
 
@@ -330,17 +333,53 @@ with tab4:
         fig_cluster.update_traces(marker=dict(size=12, line=dict(width=1, color="DarkSlateGrey")))
         st.plotly_chart(fig_cluster, use_container_width=True)
 
-        st.markdown("#### 3. Strategic Market Insights")
+        st.markdown("#### 3. Strategic Market & Stat Insights")
+
         t1, t2, t3 = [df_clustered[df_clustered["market_tier"] == f"Tier {i}"] for i in range(1, 4)]
+
+        # Extract stat-based insights for primary metrics
+        stat_feat1 = cluster_feat[2] if len(cluster_feat) > 2 else primary_m
+        stat_feat2 = cluster_feat[3] if len(cluster_feat) > 3 else None
+
+        lbl_s1 = stat_feat1.replace("_", " ").title()
+        lbl_s2 = stat_feat2.replace("_", " ").title() if stat_feat2 else None
+
+
+        def build_stat_bullet(df_tier):
+            if df_tier.empty:
+                return "- **Production**: N/A"
+            s1_val = df_tier[stat_feat1].mean()
+            text = f"- **Average {lbl_s1}**: {s1_val:,.2f}\n"
+            if stat_feat2 and stat_feat2 in df_tier.columns:
+                s2_val = df_tier[stat_feat2].mean()
+                text += f"- **Average {lbl_s2}**: {s2_val:,.2f}\n"
+            return text
+
+
         col_t1, col_t2, col_t3 = st.columns(3)
         with col_t1:
             st.info(
-                f"**Tier 1: Premium / Franchise ({len(t1)} Players)**\n\n- **Avg APY**: ${t1['average'].mean():,.2f}\n- **Avg Guarantee %**: {t1['guarantee_pct'].mean():.2f}%")
+                f"**Tier 1: Premium Market ({len(t1)} Players)**\n\n"
+                f"- **Average APY**: ${t1['average'].mean():,.2f}\n"
+                f"- **Average Guarantee %**: {t1['guarantee_pct'].mean():.2f}%\n"
+                f"{build_stat_bullet(t1)}"
+                f"- **Market Role**: Elite starter volume paired with top financial guarantees."
+            )
         with col_t2:
             st.warning(
-                f"**Tier 2: Mid-Tier / Rotation ({len(t2)} Players)**\n\n- **Avg APY**: ${t2['average'].mean():,.2f}\n- **Avg Guarantee %**: {t2['guarantee_pct'].mean():.2f}%")
+                f"**Tier 2: Mid-Tier Market ({len(t2)} Players)**\n\n"
+                f"- **Average APY**: ${t2['average'].mean():,.2f}\n"
+                f"- **Average Guarantee %**: {t2['guarantee_pct'].mean():.2f}%\n"
+                f"{build_stat_bullet(t2)}"
+                f"- **Market Role**: Solid starter output or high-tier rotational role."
+            )
         with col_t3:
             st.success(
-                f"**Tier 3: Value / Depth ({len(t3)} Players)**\n\n- **Avg APY**: ${t3['average'].mean():,.2f}\n- **Avg Guarantee %**: {t3['guarantee_pct'].mean():.2f}%")
+                f"**Tier 3: Value/Depth Market ({len(t3)} Players)**\n\n"
+                f"- **Average APY**: ${t3['average'].mean():,.2f}\n"
+                f"- **Average Guarantee %**: {t3['guarantee_pct'].mean():.2f}%\n"
+                f"{build_stat_bullet(t3)}"
+                f"- **Market Role**: Budget depth assets offering efficiency upside."
+            )
     else:
         st.warning("Insufficient sample size in current filter selection to compute k-Means clustering.")
